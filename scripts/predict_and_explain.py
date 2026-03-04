@@ -72,9 +72,6 @@ def safe_load_image(image_path):
                 cv2.BORDER_REFLECT
             )
 
-        if np.std(img) < 1:
-            raise ValueError("Image has insufficient texture.")
-
         return img
 
     except Exception as e:
@@ -95,12 +92,12 @@ def predict_image(image_path):
     if len(features) != len(feature_names):
         raise ValueError("Feature mismatch with trained model.")
 
-    if np.std(img) == 0:
-        raise ValueError("Image has no texture information.")
-
-    feature_array = np.array(features).reshape(1, -1)
+    feature_array = np.array(features, dtype=np.float64).reshape(1, -1)
+    feature_array = np.nan_to_num(feature_array, nan=0.0, posinf=0.0, neginf=0.0)
 
     scaled_features = scaler.transform(feature_array)
+    scaled_features = np.nan_to_num(scaled_features, nan=0.0, posinf=0.0, neginf=0.0)
+
     log_prob = float(log_model.predict_proba(scaled_features)[0][1])
     rf_prob = float(rf_model.predict_proba(feature_array)[0][1])
 
@@ -162,25 +159,57 @@ Keep it clear and technical but simple.
 # CONTROLLED LLM CALL (HTTP VERSION)
 # ---------------------------------------------------
 def generate_explanation(prompt):
+    OLLAMA_URL = "http://localhost:11434/api/generate"
+    MODEL_NAME = "phi3:latest"
+
+    print(f"\n[LLM] Calling Ollama at {OLLAMA_URL} with model '{MODEL_NAME}'...")
+    print(f"[LLM] Prompt length: {len(prompt)} chars")
+
     try:
+        # First check if Ollama is reachable
+        try:
+            health = requests.get("http://localhost:11434/", timeout=5)
+            print(f"[LLM] Ollama health check: {health.status_code}")
+        except Exception as he:
+            print(f"[LLM] Ollama NOT reachable: {he}")
+            return "Explanation generation failed. Ollama is not running on localhost:11434."
+
         response = requests.post(
-            "http://localhost:11434/api/generate",
+            OLLAMA_URL,
             json={
-                "model": "phi3:latest",   # ← IMPORTANT FIX
+                "model": MODEL_NAME,
                 "prompt": prompt,
-                "stream": False
+                "stream": False,
+                "options": {
+                    "num_predict": 200,
+                    "temperature": 0.5
+                }
             },
-            timeout=60
+            timeout=120  # increased for cold starts
         )
 
+        print(f"[LLM] Response status: {response.status_code}")
         response.raise_for_status()
         data = response.json()
 
-        return data["response"].strip()
+        explanation = data.get("response", "").strip()
+        print(f"[LLM] Got explanation ({len(explanation)} chars): {explanation[:100]}...")
 
+        if not explanation:
+            print("[LLM] WARNING: LLM returned empty response")
+            return "The AI model returned an empty explanation. Please try again."
+
+        return explanation
+
+    except requests.exceptions.Timeout:
+        print("[LLM] ERROR: Request timed out after 120 seconds")
+        return "Explanation generation timed out. The model may be loading."
+    except requests.exceptions.ConnectionError as ce:
+        print(f"[LLM] ERROR: Connection failed: {ce}")
+        return "Explanation generation failed. Cannot connect to Ollama."
     except Exception as e:
-        print("LLM ERROR:", str(e))
-        return "Explanation generation failed. LLM unavailable."
+        print(f"[LLM] ERROR: {type(e).__name__}: {e}")
+        return f"Explanation generation failed: {str(e)}"
 
 # ---------------------------------------------------
 # MAIN (Testing)
