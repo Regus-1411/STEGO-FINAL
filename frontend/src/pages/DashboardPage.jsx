@@ -237,7 +237,7 @@ const DashboardPage = () => {
             <div className="glass rounded-2xl p-6">
               <div className="flex items-center gap-2 mb-4">
                 <AlertTriangle className="w-5 h-5 text-primary" />
-                <h2 className="font-semibold text-sm">Confidence Meter</h2>
+                <h2 className="font-semibold text-sm">Stego Percentage Meter</h2>
               </div>
               <div className="flex flex-wrap justify-center gap-8">
                 {results.map((r, idx) => {
